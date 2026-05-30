@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Matrix</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #000;
+    overflow: hidden;
+    width: 100vw;
+    height: 100vh;
+    cursor: none;
+  }
+  canvas {
+    display: block;
+    position: fixed;
+    top: 0; left: 0;
+  }
+  #overlay {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    z-index: 2;
+  }
+  #title {
+    position: fixed;
+    bottom: 32px;
+    right: 40px;
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    color: #0f3d0f;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    z-index: 10;
+    opacity: 0.5;
+  }
+  #instruction {
+    position: fixed;
+    bottom: 32px;
+    left: 40px;
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    color: #0f3d0f;
+    letter-spacing: 0.12em;
+    z-index: 10;
+    opacity: 0.5;
+  }
+</style>
+</head>
+<body>
+<canvas id="matrix"></canvas>
+<div id="title">THE MATRIX</div>
+<div id="instruction">press ESC or F to toggle fullscreen</div>
+
+<script>
+const canvas = document.getElementById('matrix');
+const ctx = canvas.getContext('2d');
+
+let W, H, cols, drops, speeds, brightCols, brightTimer;
+
+// Matrix character sets — katakana + latin + digits + symbols (as in the film)
+const KATAKANA = 'ｦｧｨｩｪｫｬｭｮｯｰｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜﾝ';
+const LATIN   = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+const DIGITS  = '0123456789';
+const SYMBOLS = ':.<>|\\/*-+=[]{}';
+const ALL_CHARS = KATAKANA + LATIN + DIGITS + SYMBOLS;
+
+const FONT_SIZE = 16;
+
+function randomChar() {
+  return ALL_CHARS[Math.floor(Math.random() * ALL_CHARS.length)];
+}
+
+function init() {
+  W = canvas.width  = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  cols = Math.floor(W / FONT_SIZE);
+
+  drops  = new Float32Array(cols);
+  speeds = new Float32Array(cols);
+  brightCols = new Uint8Array(cols);
+
+  for (let i = 0; i < cols; i++) {
+    drops[i]  = Math.random() * -H / FONT_SIZE;  // stagger start
+    speeds[i] = 0.18 + Math.random() * 0.38;       // varied speeds (slowed)
+    brightCols[i] = Math.random() < 0.08 ? 1 : 0; // ~8% are extra-bright columns
+  }
+  brightTimer = 0;
+}
+
+// Per-column character buffers (so chars don't re-randomize every frame)
+let charBufs = [];
+
+function initChars() {
+  const rows = Math.ceil(H / FONT_SIZE) + 4;
+  charBufs = [];
+  for (let c = 0; c < cols; c++) {
+    const col = [];
+    for (let r = 0; r < rows; r++) col.push(randomChar());
+    charBufs.push(col);
+  }
+}
+
+// Mutate a small fraction of chars each frame (flickering effect)
+function mutateChars() {
+  const rows = charBufs[0]?.length || 0;
+  const mutations = Math.floor(cols * rows * 0.003);
+  for (let m = 0; m < mutations; m++) {
+    const c = Math.floor(Math.random() * cols);
+    const r = Math.floor(Math.random() * rows);
+    if (charBufs[c]) charBufs[c][r] = randomChar();
+  }
+}
+
+let frame = 0;
+
+function draw() {
+  frame++;
+
+  // Black trail with slight persistence → creates the fade effect
+  ctx.fillStyle = 'rgba(0,0,0,0.045)';
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.font = `bold ${FONT_SIZE}px 'Courier New', monospace`;
+
+  // Occasionally flip a column to bright or normal
+  brightTimer++;
+  if (brightTimer > 20) {
+    brightTimer = 0;
+    const c = Math.floor(Math.random() * cols);
+    brightCols[c] = Math.random() < 0.08 ? 1 : 0;
+  }
+
+  mutateChars();
+
+  for (let i = 0; i < cols; i++) {
+    const x     = i * FONT_SIZE;
+    const dropY = drops[i];
+    const isBright = brightCols[i];
+
+    // Number of glowing rows in the trail
+    const trailLen = Math.floor(14 + Math.random() * 10);
+
+    for (let t = 0; t < trailLen; t++) {
+      const row = Math.floor(dropY) - t;
+      if (row < 0 || row * FONT_SIZE > H) continue;
+
+      const y = row * FONT_SIZE;
+      const ch = charBufs[i] ? charBufs[i][row % charBufs[i].length] : randomChar();
+
+      if (t === 0) {
+        // Leading character — bright white (like in the film)
+        ctx.fillStyle = isBright
+          ? '#ffffff'
+          : '#e8ffe8';
+        ctx.shadowColor = '#00ff41';
+        ctx.shadowBlur  = isBright ? 18 : 12;
+      } else {
+        // Trail — fades from bright green to dark green
+        const ratio = t / trailLen;
+        const alpha = Math.pow(1 - ratio, 1.6);
+
+        if (isBright) {
+          // Bright columns: lighter, more neon
+          const g = Math.floor(180 + (1 - ratio) * 75);
+          ctx.fillStyle = `rgba(0,${g},60,${alpha})`;
+          ctx.shadowColor = '#00ff41';
+          ctx.shadowBlur  = 6 * (1 - ratio);
+        } else {
+          // Normal columns: classic deep Matrix green
+          const g = Math.floor(160 + (1 - ratio) * 95);
+          ctx.fillStyle = `rgba(0,${g},30,${alpha})`;
+          ctx.shadowColor = '#003b00';
+          ctx.shadowBlur  = 3 * (1 - ratio);
+        }
+      }
+
+      ctx.fillText(ch, x, y);
+    }
+
+    // Reset shadow
+    ctx.shadowBlur = 0;
+
+    // Advance drop
+    drops[i] += speeds[i];
+
+    // Random reset with some randomness so columns don't all reset together
+    if (drops[i] * FONT_SIZE > H && Math.random() > 0.975) {
+      drops[i] = Math.random() * -20;
+      speeds[i] = 0.18 + Math.random() * 0.38;
+      brightCols[i] = Math.random() < 0.08 ? 1 : 0;
+    }
+  }
+}
+
+let animId;
+function startLoop() {
+  function loop() {
+    draw();
+    animId = requestAnimationFrame(loop);
+  }
+  loop();
+}
+
+init();
+initChars();
+startLoop();
+
+window.addEventListener('resize', () => {
+  cancelAnimationFrame(animId);
+  init();
+  initChars();
+  startLoop();
+});
+
+// Keyboard controls
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    if (document.fullscreenElement) document.exitFullscreen();
+  }
+  if (e.key === 'f' || e.key === 'F') {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen();
+    } else {
+      document.exitFullscreen();
+    }
+  }
+});
+
+// Auto fullscreen on double-click
+document.addEventListener('dblclick', () => {
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen();
+  }
+});
+</script>
+</body>
+</html>
